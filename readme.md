@@ -137,4 +137,4 @@ making it easy for them to make good decisions about passing dynamic (unsafe)
 data into those queries.
 
 [parameterized query]: https://node-postgres.com/features/queries#parameterized-query
-[simple postgres]: https://github.com/madd512/simple-postgres
+[simple-postgres]: https://github.com/madd512/simple-postgres
