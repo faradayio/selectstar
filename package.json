@@ -1,6 +1,6 @@
 {
   "name": "selectstar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generate safe SQL statements with tagged literals",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,6 +8,10 @@
     "build": "tsc",
     "test": "mocha -r ts-node/register src/**/*.test.ts",
     "deploy": "./deploy.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faradayio/selectstar"
   },
   "keywords": [
     "sql",
