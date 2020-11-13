@@ -1,4 +1,4 @@
-interface Output {
+export interface SqlQueryObject {
   text: string;
   values: unknown[];
 }
@@ -8,36 +8,19 @@ function escapeIdentifier(str: string): string {
   return '"' + str.replace(/"/g, '""') + '"';
 }
 
-// Ported from <https://github.com/brianc/node-postgres/blob/3f6760c62ee2a901d374b5e50c2f025b7d550315/packages/pg/lib/client.js#L408-L437>
-function escapeLiteral(str: string): string {
-  var hasBackslash = false;
-  var escaped = "'";
+/*
+A "box" is just an opaque container for a value. It is deliberately difficult to
+unwrap the contents of a boxed value, because once created it is intended to be
+atomic and inscrutable. It is unboxed by the sql generator and processed.
 
-  for (var i = 0; i < str.length; i++) {
-    var c = str[i];
-    if (c === "'") {
-      escaped += c + c;
-    } else if (c === "\\") {
-      escaped += c + c;
-      hasBackslash = true;
-    } else {
-      escaped += c;
-    }
-  }
-
-  escaped += "'";
-
-  if (hasBackslash === true) {
-    escaped = " E" + escaped;
-  }
-
-  return escaped;
-}
-
+A variety of box types are defined below that are used by the sql generator.
+ */
 const $$BOX$$ = Symbol("$$SQL.BOX$$");
 interface Box<T = Record<string, unknown>> {
   [$$BOX$$]: T;
 }
+
+// Box a value, making it into an opaque atomic value.
 function box<T>(value: T): Box<T> {
   return { [$$BOX$$]: value };
 }
@@ -49,34 +32,126 @@ function isBox(value: unknown): value is Box {
   return value && typeof value === "object" && $$BOX$$ in value;
 }
 
+// An "identifier" is a value in a SQL query that refers to a table or column in
+// the schema within a query. These are doublequoted and inlined when processed.
 type Identifier = Box<{ type: "identifier"; value: string }>;
 function isIdentifier(value: unknown): value is Identifier {
   return isBox(value) && unwrap(value).type === "identifier";
 }
+
+/**
+ * Use an identifier safely within a query. This is useful if you need to query
+ * dynamic column or table names. User-provided/unsafe values should be safe to
+ * pass to `identifier`; they will be escaped using the algorithm that node-pg
+ * uses.
+ *
+ * @example
+ * Imagine we have several different tables for storing vessel information. One
+ * for spaceships, one for airships, one for seagoing craft, etc. We might want
+ * to perform the same query against every table, depending on the type that we
+ * are querying for:
+ * ```
+ * sql`SELECT * FROM ${identifier(vesselType)}`
+ * ```
+ * This will result in:
+ * ```
+ * {
+ *   text: "SELECT * FROM "spaceships",
+ *   values: []
+ * }
+ * ```
+ *
+ * @param value The dynamic string value to use as an identifier
+ * @return An Identifier box
+ */
 export function identifier(value: string): Identifier {
   return box({ type: "identifier", value });
 }
 
-type List = Box<{ type: "list"; items: unknown[]; separator: string }>;
+// A list represents an array of sql fragments that should be recursively
+// processed by the sql generator.
+type List = Box<{ type: "list"; items: readonly SqlTemplateStringParams[]; separator: string }>;
 function isList(value: unknown): value is List {
   return isBox(value) && unwrap(value).type === "list";
 }
-export function list(items: unknown[], separator: string = ", "): List {
-  return box({ type: "list", items, separator });
-}
 
-type Literal = Box<{ type: "literal"; value: string }>;
-function isLiteral(value: unknown): value is Literal {
-  return isBox(value) && unwrap(value).type === "literal";
-}
-export function literal(value: string): Literal {
-  return box({ type: "literal", value });
+/**
+ * Generate a dynamic-length list of items in the resulting SQL query. Each item
+ * in the list will be processed in order, and they will be separated by the
+ * string value provided in the second argument.
+ *
+ * **Warning:** The separator value is treated as safe and will be included with
+ * no escaping in the resulting query. Do not use dynamic values for the
+ * separator argument. If you do, selectstar cannot help you.
+ *
+ * @example
+ * ```
+ * const cols = ["id", "name"]
+ * const rows = [
+ *   ["123", "Phillip Fry"]
+ *   ["456", "Turanga Leela"]
+ * ]
+ * sql`
+ *   INSERT INTO users (${list(columns.map(identifier))}) VALUES
+ *   ${list(rows.map(cols => template`(${list(cols)})`))}
+ * `
+ * ```
+ * This will result in:
+ * ```
+ * {
+ *   text: `
+ *     INSERT INTO users ("id", "name") VALUES
+ *     ($1, $2),
+ *     ($3, $4)
+ *   `
+ *   values: [
+ *     "123",
+ *     "Phillip Fry",
+ *     "456",
+ *     "Turanga Leela"
+ *   ]
+ * }
+ * ```
+ *
+ * @param items A list of values to concatenate together in the resulting query
+ * @param separator (optional) A separator to interpose between each item.
+ * Default is ", "
+ * @return A box containing the items in the list and a separator.
+ */
+export function list(items: readonly SqlTemplateStringParams[], separator: string = ", "): List {
+  return box({ type: "list", items, separator });
 }
 
 type Unsafe = Box<{ type: "unsafe"; value: unknown }>;
 function isUnsafe(value: unknown): value is Unsafe {
   return isBox(value) && unwrap(value).type === "unsafe";
 }
+
+/**
+ * **USE WITH EXTREME CAUTION**
+ *
+ * If you need to include a literal value in your SQL query, and you cannot use
+ * `template`, cannot use parameterization, and cannot use any other tool in
+ * this toolbox, you can use `unsafe`. Values passed to unsafe are printed
+ * literally in the resulting query. If you use this function with untrusted
+ * data, it will eventually blow up your day. You have been warned.
+ *
+ * @example
+ * This is not a good example because there are other, safer tools for doing
+ * each part of this. Again, avoid using this function unless you have no other
+ * option:
+ * ```
+ * sql`
+ *   SELECT ${unsafe(columns.join(', '))}
+ *   FROM ${unsafe(tableName)}
+ *   WHERE ${unsafe(whereString)}
+ * `
+ * ```
+ *
+ * @param value
+ * @return A box containing a value that will be evaluated literally in the
+ * resulting query.
+ */
 export function unsafe(value: unknown): Unsafe {
   return box({ type: "unsafe", value });
 }
@@ -89,7 +164,7 @@ function process(
   fragments: TemplateStringsArray,
   params: unknown[],
   index: number = 1
-): Output {
+): SqlQueryObject {
   let text = "";
   let values: unknown[] = [];
 
@@ -122,17 +197,6 @@ function process(
         processParam(items[i]);
         if (i !== items.length - 1) text += separator;
       }
-    } else if (isLiteral(param)) {
-      // Allows adding escaped literals to a query safely. For example:
-      //
-      // sql`SELECT * FROM tbl WHERE name = ${literal("example")}`
-      //
-      // would result in:
-      //
-      // `SELECT * FROM tbl WHERE name = 'example'`
-      //
-      // Note that this bypasses the standard node-pg parameterization/
-      text += escapeLiteral(unwrap(param).value);
     } else if (isUnsafe(param)) {
       // Unsafely add this string to a query. Bypasses parameterization and
       // any sort of escaping. It's called Unsafe for a reason, because it turns
@@ -178,14 +242,15 @@ export function format(sql: string): string {
   return pieces.map((p) => p.slice(leadingSpace)).join("\n");
 }
 
+export type Template = (subsql: typeof sql) => SqlQueryObject;
+
 type SqlTemplateStringParams =
   | string
   | number
   | Identifier
   | List
-  | Literal
   | Unsafe
-  | ((subsql: typeof sql) => Output);
+  | Template;
 
 /**
  * Using a template literal, generate a query with arguments that can be passed
@@ -193,12 +258,12 @@ type SqlTemplateStringParams =
  *
  * @param fragments
  * @param args
- * @return {{query: *, values: *}}
+ * @return A query object that can be passed to node-postgres's query function
  */
 export function sql(
   fragments: TemplateStringsArray,
   ...args: SqlTemplateStringParams[]
-): Output {
+): SqlQueryObject {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
 
@@ -209,8 +274,6 @@ export function sql(
     values,
   };
 }
-
-export type Template = (subsql: typeof sql) => Output;
 
 /**
  * Generate a template that can be used in a query generated by the sql function

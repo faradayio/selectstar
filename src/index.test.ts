@@ -1,5 +1,5 @@
 import assert from "assert";
-import { identifier, list, literal, sql, template, unsafe } from "./index";
+import { identifier, list, sql, template, unsafe } from "./index";
 
 describe("sql", () => {
   it("should do simple variable substitution", () => {
@@ -21,29 +21,6 @@ describe("sql", () => {
     assert.deepStrictEqual(query, {
       text: "SELECT * FROM accounts WHERE id = ANY($1, $2)",
       values: [123, 456],
-    });
-  });
-
-  it("should allow literal values", () => {
-    const query = sql`
-      SELECT * FROM accounts WHERE id = ${literal("abcde")}
-    `;
-
-    assert.deepStrictEqual(query, {
-      text: "SELECT * FROM accounts WHERE id = 'abcde'",
-      values: [],
-    });
-
-    //                          ↙ note attempt to break out of quoting
-    const injectionValue = "abc' AND hidden = true";
-    const injection = sql`
-      SELECT * FROM accounts WHERE id = ${literal(injectionValue)} LIMIT 1
-    `;
-
-    assert.deepStrictEqual(injection, {
-      text:
-        "SELECT * FROM accounts WHERE id = 'abc'' AND hidden = true' LIMIT 1",
-      values: [],
     });
   });
 
