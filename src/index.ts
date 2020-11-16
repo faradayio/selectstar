@@ -1,6 +1,6 @@
-export interface SqlQueryObject {
+export interface SqlQueryObject<I extends any = any> {
   text: string;
-  values: unknown[];
+  values: I[];
 }
 
 // Ported from <https://github.com/brianc/node-postgres/blob/3f6760c62ee2a901d374b5e50c2f025b7d550315/packages/pg/lib/client.js#L408-L437>
@@ -70,7 +70,7 @@ export function identifier(value: string): Identifier {
 
 // A list represents an array of sql fragments that should be recursively
 // processed by the sql generator.
-type List = Box<{ type: "list"; items: readonly SqlTemplateStringParams[]; separator: string }>;
+type List = Box<{ type: "list"; items: readonly SqlLiteralParams[]; separator: string }>;
 function isList(value: unknown): value is List {
   return isBox(value) && unwrap(value).type === "list";
 }
@@ -118,7 +118,7 @@ function isList(value: unknown): value is List {
  * Default is ", "
  * @return A box containing the items in the list and a separator.
  */
-export function list(items: readonly SqlTemplateStringParams[], separator: string = ", "): List {
+export function list(items: readonly SqlLiteralParams[], separator: string = ", "): List {
   return box({ type: "list", items, separator });
 }
 
@@ -233,6 +233,12 @@ function process(
   return { text, values };
 }
 
+/**
+ * Does a very cheap "best attempt" at reformatting multiple lines of SQL into
+ * something that has as little leading space as possible.
+ *
+ * @param sql
+ */
 export function format(sql: string): string {
   const pieces = sql.split("\n").filter((p) => !p.match(/^\s*$/));
   const leadingSpace = Math.min(
@@ -242,11 +248,10 @@ export function format(sql: string): string {
   return pieces.map((p) => p.slice(leadingSpace)).join("\n");
 }
 
-export type Template = (subsql: typeof sql) => SqlQueryObject;
+export type Template<I extends any = any> =
+  (subsql: typeof sql) => SqlQueryObject<I>;
 
-type SqlTemplateStringParams =
-  | string
-  | number
+export type SqlLiteralParams =
   | Identifier
   | List
   | Unsafe
@@ -260,10 +265,10 @@ type SqlTemplateStringParams =
  * @param args
  * @return A query object that can be passed to node-postgres's query function
  */
-export function sql(
+export function sql<I extends any = any>(
   fragments: TemplateStringsArray,
-  ...args: SqlTemplateStringParams[]
-): SqlQueryObject {
+  ...args: (I | SqlLiteralParams)[]
+): SqlQueryObject<I> {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
 
@@ -282,10 +287,10 @@ export function sql(
  * @param fragments
  * @param args
  */
-export function template(
+export function template<I extends any = any>(
   fragments: TemplateStringsArray,
-  ...args: SqlTemplateStringParams[]
-): Template {
+  ...args: (I | SqlLiteralParams)[]
+): Template<I> {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
 
