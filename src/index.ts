@@ -70,7 +70,11 @@ export function identifier(value: string): Identifier {
 
 // A list represents an array of sql fragments that should be recursively
 // processed by the sql generator.
-type List = Box<{ type: "list"; items: readonly SqlLiteralParams[]; separator: string }>;
+type List<I extends any = any> = Box<{
+  type: "list";
+  items: readonly (I | SqlLiteralParams)[];
+  separator: string
+}>;
 function isList(value: unknown): value is List {
   return isBox(value) && unwrap(value).type === "list";
 }
@@ -118,7 +122,10 @@ function isList(value: unknown): value is List {
  * Default is ", "
  * @return A box containing the items in the list and a separator.
  */
-export function list(items: readonly SqlLiteralParams[], separator: string = ", "): List {
+export function list<I extends any = any>(
+  items: readonly (I | SqlLiteralParams)[],
+  separator: string = ", "
+): List {
   return box({ type: "list", items, separator });
 }
 
