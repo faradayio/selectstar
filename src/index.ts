@@ -1,6 +1,6 @@
-export interface SqlQueryObject<I extends any = any> {
+export interface SqlQueryObject {
   text: string;
-  values: I[];
+  values: unknown[];
 }
 
 // Ported from <https://github.com/brianc/node-postgres/blob/3f6760c62ee2a901d374b5e50c2f025b7d550315/packages/pg/lib/client.js#L408-L437>
@@ -29,7 +29,7 @@ function unwrap<T>(value: Box<T>): T {
   return value[$$BOX$$];
 }
 function isBox(value: unknown): value is Box {
-  return value && typeof value === "object" && $$BOX$$ in value;
+  return Boolean(value && typeof value === "object" && $$BOX$$ in value);
 }
 
 // An "identifier" is a value in a SQL query that refers to a table or column in
@@ -73,7 +73,7 @@ export function identifier(value: string): Identifier {
 type List<I extends any = any> = Box<{
   type: "list";
   items: readonly (I | SqlLiteralParams)[];
-  separator: string
+  separator: string;
 }>;
 function isList(value: unknown): value is List {
   return isBox(value) && unwrap(value).type === "list";
@@ -163,8 +163,19 @@ export function unsafe(value: unknown): Unsafe {
   return box({ type: "unsafe", value });
 }
 
-function subsql(fragments: TemplateStringsArray, ...params: unknown[]) {
-  return { fragments, params };
+type Subsql = Box<{
+  type: "subsql";
+  value: { fragments: TemplateStringsArray; params: SqlLiteralParams[] };
+}>;
+function isSubsql(value: unknown): value is Subsql {
+  return isBox(value) && unwrap(value).type === "subsql";
+}
+
+function subsql(
+  fragments: TemplateStringsArray,
+  ...params: SqlLiteralParams[]
+): Subsql {
+  return box({ type: "subsql", value: { fragments, params } });
 }
 
 function process(
@@ -179,9 +190,10 @@ function process(
     if (typeof param === "function") {
       const result = param(subsql);
 
-      if ("fragments" in result && "params" in result) {
+      if (isSubsql(result)) {
+        const { params, fragments } = unwrap(result).value;
         // The result of the inner function is the result of a call to `subsql`
-        const processed = process(result.fragments, result.params, index);
+        const processed = process(fragments, params, index);
 
         text += processed.text;
         values.push(...processed.values);
@@ -225,7 +237,7 @@ function process(
     // to process. If there are, throw an error. If there are not, skip the rest
     // of this loop iteration.
     if (i === fragments.length - 1) {
-      if (params[i]) {
+      if (params.length > i) {
         // If we have more params to process, something very bad has happened.
         // Fail loudly.
         const ps = params.slice(i).join(", ");
@@ -255,14 +267,9 @@ export function format(sql: string): string {
   return pieces.map((p) => p.slice(leadingSpace)).join("\n");
 }
 
-export type Template<I extends any = any> =
-  (subsql: typeof sql) => SqlQueryObject<I>;
-
-export type SqlLiteralParams =
-  | Identifier
-  | List
-  | Unsafe
-  | Template;
+export type Literal = string | number | boolean | null;
+export type Template = (fn: typeof subsql) => Subsql;
+export type SqlLiteralParams = Identifier | List | Unsafe | Template | Literal;
 
 /**
  * Using a template literal, generate a query with arguments that can be passed
@@ -272,10 +279,10 @@ export type SqlLiteralParams =
  * @param args
  * @return A query object that can be passed to node-postgres's query function
  */
-export function sql<I extends any = any>(
+export function sql(
   fragments: TemplateStringsArray,
-  ...args: (I | SqlLiteralParams)[]
-): SqlQueryObject<I> {
+  ...args: SqlLiteralParams[]
+): SqlQueryObject {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
 
@@ -294,14 +301,12 @@ export function sql<I extends any = any>(
  * @param fragments
  * @param args
  */
-export function template<I extends any = any>(
+export function template(
   fragments: TemplateStringsArray,
-  ...args: (I | SqlLiteralParams)[]
-): Template<I> {
+  ...args: SqlLiteralParams[]
+): Template {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
 
-  return function tmpl(subsql: typeof sql) {
-    return subsql(fragments, ...args);
-  };
+  return (fn) => fn(fragments, ...args);
 }
