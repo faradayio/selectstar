@@ -267,7 +267,21 @@ export function format(sql: string): string {
   return pieces.map((p) => p.slice(leadingSpace)).join("\n");
 }
 
-export type Literal = string | number | boolean | null;
+export type Literal =
+  // Standard literals are supported:
+  | string
+  | number
+  | boolean
+  // Per <https://github.com/brianc/node-postgres/blob/07988f985a492c85195c6cdc928f79816af94c66/packages/pg/lib/utils.js#L41>,
+  // undefined and null are identical and supported.
+  | null
+  | undefined
+  // dates are parsed as either toStringUTC or toString, depending on how pg is configured
+  | Date
+  // buffers and bufferviews are supported.
+  | Buffer
+  | ArrayBufferView;
+
 export type Template = (fn: typeof subsql) => Subsql;
 export type SqlLiteralParams = Identifier | List | Unsafe | Template | Literal;
 
