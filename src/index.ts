@@ -1,6 +1,6 @@
 export interface SqlQueryObject {
   text: string;
-  values: unknown[];
+  values: Literal[];
 }
 
 // Ported from <https://github.com/brianc/node-postgres/blob/3f6760c62ee2a901d374b5e50c2f025b7d550315/packages/pg/lib/client.js#L408-L437>
@@ -68,11 +68,16 @@ export function identifier(value: string): Identifier {
   return box({ type: "identifier", value });
 }
 
+// Added for simple-postgres compatibility
+export function identifiers(values: string[], separator?: string): List {
+  return list(values.map(identifier), separator);
+}
+
 // A list represents an array of sql fragments that should be recursively
 // processed by the sql generator.
-type List<I extends any = any> = Box<{
+type List = Box<{
   type: "list";
-  items: readonly (I | SqlLiteralParams)[];
+  items: readonly SqlLiteralParams[];
   separator: string;
 }>;
 function isList(value: unknown): value is List {
@@ -122,12 +127,15 @@ function isList(value: unknown): value is List {
  * Default is ", "
  * @return A box containing the items in the list and a separator.
  */
-export function list<I extends any = any>(
-  items: readonly (I | SqlLiteralParams)[],
+export function list(
+  items: readonly SqlLiteralParams[],
   separator: string = ", "
 ): List {
   return box({ type: "list", items, separator });
 }
+
+// Aliased for simple-postgres compatibility
+export const items = list;
 
 type Unsafe = Box<{ type: "unsafe"; value: unknown }>;
 function isUnsafe(value: unknown): value is Unsafe {
@@ -173,9 +181,23 @@ function isSubsql(value: unknown): value is Subsql {
 
 function subsql(
   fragments: TemplateStringsArray,
-  ...params: SqlLiteralParams[]
+  ...params: [...SqlLiteralParams[]]
 ): Subsql {
   return box({ type: "subsql", value: { fragments, params } });
+}
+
+function isLiteral(value: unknown): value is Literal {
+  const type = typeof value;
+  return (
+    type === "string" ||
+    type === "number" ||
+    type === "boolean" ||
+    value === null ||
+    value === undefined ||
+    value instanceof Date ||
+    value instanceof Buffer ||
+    ArrayBuffer.isView(value)
+  );
 }
 
 function process(
@@ -184,7 +206,7 @@ function process(
   index: number = 1
 ): SqlQueryObject {
   let text = "";
-  let values: unknown[] = [];
+  let values: Literal[] = [];
 
   function processParam(param: unknown) {
     if (typeof param === "function") {
@@ -221,10 +243,12 @@ function process(
       // any sort of escaping. It's called Unsafe for a reason, because it turns
       // all the safeties off.
       text += unwrap(param).value;
-    } else {
+    } else if (isLiteral(param)) {
       text += "$" + index;
       values.push(param);
       index += 1;
+    } else {
+      throw new RangeError(`Value ${param} is not a valid pg literal`);
     }
   }
 
@@ -295,7 +319,7 @@ export type SqlLiteralParams = Identifier | List | Unsafe | Template | Literal;
  */
 export function sql(
   fragments: TemplateStringsArray,
-  ...args: SqlLiteralParams[]
+  ...args: [...SqlLiteralParams[]]
 ): SqlQueryObject {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
@@ -317,7 +341,7 @@ export function sql(
  */
 export function template(
   fragments: TemplateStringsArray,
-  ...args: SqlLiteralParams[]
+  ...args: [...SqlLiteralParams[]]
 ): Template {
   if (!Array.isArray(fragments))
     throw new TypeError(`Unexpected value ${typeof fragments} at arg 0`);
