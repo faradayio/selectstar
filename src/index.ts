@@ -75,7 +75,7 @@ export function identifiers(values: string[], separator?: string): List {
 
 // A list represents an array of sql fragments that should be recursively
 // processed by the sql generator.
-type List = Box<{
+export type List = Box<{
   type: "list";
   items: readonly SqlLiteralParams[];
   separator: string;
