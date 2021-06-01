@@ -34,7 +34,7 @@ function isBox(value: unknown): value is Box {
 
 // An "identifier" is a value in a SQL query that refers to a table or column in
 // the schema within a query. These are doublequoted and inlined when processed.
-type Identifier = Box<{ type: "identifier"; value: string }>;
+export type Identifier = Box<{ type: "identifier"; value: string }>;
 function isIdentifier(value: unknown): value is Identifier {
   return isBox(value) && unwrap(value).type === "identifier";
 }
@@ -137,7 +137,7 @@ export function list(
 // Aliased for simple-postgres compatibility
 export const items = list;
 
-type Unsafe = Box<{ type: "unsafe"; value: unknown }>;
+export type Unsafe = Box<{ type: "unsafe"; value: unknown }>;
 function isUnsafe(value: unknown): value is Unsafe {
   return isBox(value) && unwrap(value).type === "unsafe";
 }
@@ -171,7 +171,7 @@ export function unsafe(value: unknown): Unsafe {
   return box({ type: "unsafe", value });
 }
 
-type Subsql = Box<{
+export type Subsql = Box<{
   type: "subsql";
   value: { fragments: TemplateStringsArray; params: SqlLiteralParams[] };
 }>;
@@ -247,6 +247,9 @@ function process(
       text += "$" + index;
       values.push(param);
       index += 1;
+    } else if (Array.isArray(param)) {
+      // If the param is an array, it is a shorthand for `list(param, ', ')`
+      processParam(list(param));
     } else {
       throw new RangeError(`Value ${param} is not a valid pg literal`);
     }
@@ -307,7 +310,13 @@ export type Literal =
   | ArrayBufferView;
 
 export type Template = (fn: typeof subsql) => Subsql;
-export type SqlLiteralParams = Identifier | List | Unsafe | Template | Literal;
+export type SqlLiteralParams =
+  | Identifier
+  | List
+  | Unsafe
+  | Template
+  | Literal
+  | SqlLiteralParams[];
 
 /**
  * Using a template literal, generate a query with arguments that can be passed
