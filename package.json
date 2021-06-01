@@ -1,12 +1,13 @@
 {
   "name": "selectstar",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Generate safe SQL statements with tagged literals",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "mocha -r ts-node/register src/**/*.test.ts",
+    "prepublishOnly": "rm -rf dist && npm run build",
     "deploy": "./deploy.sh"
   },
   "repository": {
