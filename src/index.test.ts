@@ -78,6 +78,14 @@ describe("sql", () => {
       values: [123, "turbine%"],
     });
   });
+  it("should allow arrays as parameters", () => {
+    const query = sql`SELECT * FROM accounts WHERE id = ANY(${[1, 2, 3]})`;
+
+    assert.deepStrictEqual(query, {
+      text: `SELECT * FROM accounts WHERE id = ANY($1)`,
+      values: [[1, 2, 3]],
+    });
+  });
   it("should allow unsafe values :(", () => {
     const query = sql`
       SELECT * FROM accounts WHERE id = ${unsafe("'12345'")}
