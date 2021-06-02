@@ -196,7 +196,8 @@ function isLiteral(value: unknown): value is Literal {
     value === undefined ||
     value instanceof Date ||
     value instanceof Buffer ||
-    ArrayBuffer.isView(value)
+    ArrayBuffer.isView(value) ||
+    (Array.isArray(value) && value.every(isLiteral))
   );
 }
 
