@@ -247,9 +247,6 @@ function process(
       text += "$" + index;
       values.push(param);
       index += 1;
-    } else if (Array.isArray(param)) {
-      // If the param is an array, it is a shorthand for `list(param, ', ')`
-      processParam(list(param));
     } else {
       throw new RangeError(`Value ${param} is not a valid pg literal`);
     }
@@ -310,13 +307,7 @@ export type Literal =
   | ArrayBufferView;
 
 export type Template = (fn: typeof subsql) => Subsql;
-export type SqlLiteralParams =
-  | Identifier
-  | List
-  | Unsafe
-  | Template
-  | Literal
-  | SqlLiteralParams[];
+export type SqlLiteralParams = Identifier | List | Unsafe | Template | Literal;
 
 /**
  * Using a template literal, generate a query with arguments that can be passed

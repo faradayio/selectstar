@@ -78,14 +78,6 @@ describe("sql", () => {
       values: [123, "turbine%"],
     });
   });
-  it("should allow list shorthands", () => {
-    const query = sql`SELECT * FROM accounts WHERE id = ANY(${[123, 456]})`;
-
-    assert.deepStrictEqual(query, {
-      text: "SELECT * FROM accounts WHERE id = ANY($1, $2)",
-      values: [123, 456],
-    });
-  });
   it("should allow unsafe values :(", () => {
     const query = sql`
       SELECT * FROM accounts WHERE id = ${unsafe("'12345'")}
