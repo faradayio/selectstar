@@ -307,7 +307,13 @@ export type Literal =
   | ArrayBufferView;
 
 export type Template = (fn: typeof subsql) => Subsql;
-export type SqlLiteralParams = Identifier | List | Unsafe | Template | Literal;
+export type SqlLiteralParams =
+  | Identifier
+  | List
+  | Unsafe
+  | Template
+  | Literal
+  | Literal[];
 
 /**
  * Using a template literal, generate a query with arguments that can be passed
