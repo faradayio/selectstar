@@ -277,6 +277,14 @@ function process(
   return { text, values };
 }
 
+// Don't format queries above a certain size. The formatter generates a ton of
+// new strings in memory, which for very long queries can add a lot of memory
+// pressure. Very long queries aren't really in selectstar's intended use case
+// (very long queries are likely machine-generated, which is likely to
+// circumvent the protections of this library) but that should not destabilize
+// projects that _do_ want that use case.
+const MAX_FORMAT_SIZE = 5000;
+
 /**
  * Does a very cheap "best attempt" at reformatting multiple lines of SQL into
  * something that has as little leading space as possible.
@@ -284,6 +292,8 @@ function process(
  * @param sql
  */
 export function format(sql: string): string {
+  if (sql.length > MAX_FORMAT_SIZE) return sql;
+
   const pieces = sql.split("\n").filter((p) => !p.match(/^\s*$/));
   const leadingSpace = Math.min(
     ...pieces.map((p) => p.length - p.trimStart().length)
